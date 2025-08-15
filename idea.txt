@@ -1,0 +1,71 @@
+1 Nguyên tắc cơ bản
+
+User: hoàn toàn ẩn danh, không login.
+
+Tin nhắn: trôi dạt trên biển, tập trung trong một “biển” duy nhất.
+
+Luồng trải nghiệm:
+
+User reload / vào app → nhận 10 tin nhắn ngẫu nhiên (tin trôi dạt tới ai thì tới :V)
+User viết tin nhắn
+
+
+
+2 Random 10 tin nhắn
+
+Session UUID tạm (cookie/session storage):
+
+Track tin nhắn đã đọc trong phiên → Redis set messageId đã đọc.
+
+Khi reload:
+
+Lọc tin nhắn chưa đọc → chọn 10 tin nhắn random.
+
+Nếu chưa đủ 10 → bổ sung từ tin nhắn đã đọc để đủ 10.
+
+Pool lớn → giảm trùng tin nhắn.
+
+Vẫn chưa giải quyết được vẫn đề tin nhắn sẽ không xuất hiện lại tại dùng uuid tạm thời và sẽ
+có vụ reset lại ttl của redis để bảo toàn bộ nhớ :(((
+
+Cho 10 tin nhắn chứ đọc nhiều sẽ trùng tin 
+
+
+
+3 Lưu trữ tin nhắn
+
+MongoDB: lưu tin nhắn vĩnh viễn.
+
+Redis: cache tin nhắn gần đây, tracking tin nhắn đã đọc → tăng tốc độ random.
+
+Mỗi tin nhắn gồm: messageId, content, createdAt, viewCount.
+
+
+
+4 Collection cá nhân
+
+tạo thêm UUID từ localStorage.
+
+dùng uuid lưu collection của người dùng trên db. Không dự định dung redis cho cái này
+
+Nếu localStorage mất → collection mất xD
+
+
+
+5 Giảm trùng tin nhắn
+
+Session UUID + Redis set → track tin nhắn đã đọc → giảm trùng trong phiên.
+
+Pool tin nhắn lớn → nhiều lựa chọn → giảm trùng.
+
+TTL Redis hợp lý → session reset → chấp nhận trùng nhỏ nếu user quay lại lâu.
+
+Nếu pool chưa đủ 10 tin nhắn chưa đọc → bổ sung tin nhắn đã đọc → vẫn đủ 10.
+
+
+
+6 Tìm kiếm tin nhắn
+
+Search theo từ khóa, dài, ngắn, xem nhiều → trả về tin nhắn random / chưa đọc.
+
+Redis cache query phổ biến. ko thì xuống db
