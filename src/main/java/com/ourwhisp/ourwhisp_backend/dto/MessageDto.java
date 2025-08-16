@@ -12,16 +12,17 @@ import java.time.Instant;
 @AllArgsConstructor
 @NoArgsConstructor
 public class MessageDto {
-    private String id;
     private String content;
-    private Instant creatAt;
-    private Long view;
 
-    public static MessageDto fromEntity(Message message){
-        return new MessageDto(message.getId(), message.getContent(),message.getCreatAt(),message.getView());
+    public static MessageDto fromEntity(Message message) {
+        MessageDto dto = new MessageDto();
+        dto.setContent(message.getContent());
+        return dto;
     }
 
-    public Message toEntity(){
-        return new Message(id,content,creatAt,view);
+    public Message toEntity() {
+        Message msg = new Message();
+        msg.setContent(content);
+        return msg;
     }
 }

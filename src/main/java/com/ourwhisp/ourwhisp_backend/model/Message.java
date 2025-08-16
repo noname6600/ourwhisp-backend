@@ -7,6 +7,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Data
 @AllArgsConstructor
@@ -14,7 +15,7 @@ import java.time.Instant;
 @Document(collection = "message")
 public class Message {
     @Id
-    private String id;
+    private String id = UUID.randomUUID().toString();
     private String content;
     private Instant creatAt;
     private Long view;
