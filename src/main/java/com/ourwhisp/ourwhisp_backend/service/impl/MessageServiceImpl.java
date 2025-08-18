@@ -1,14 +1,20 @@
-package com.ourwhisp.ourwhisp_backend.service;
+package com.ourwhisp.ourwhisp_backend.service.impl;
 
+import com.ourwhisp.ourwhisp_backend.dto.MessageSearchFilterDto;
 import com.ourwhisp.ourwhisp_backend.exception.ResourceNotFoundException;
 import com.ourwhisp.ourwhisp_backend.model.Message;
+import com.ourwhisp.ourwhisp_backend.model.MessageSearchResult;
 import com.ourwhisp.ourwhisp_backend.repository.MessageRepository;
+import com.ourwhisp.ourwhisp_backend.service.IMessageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -16,18 +22,21 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class MessageService {
+public class MessageServiceImpl implements IMessageService {
 
     private final MessageRepository messageRepository;
+
+    private final  MongoTemplate mongoTemplate;
     private final RedisTemplate<String, String> redisTemplate;
-    private MongoTemplate mongoTemplate;
+    private final RedisTemplate<String, Object> objectRedisTemplate;
+
 
     private static final String KEY_ALL = "our:all";
     private static final String KEY_MSG_PREFIX = "our:msg:";
     private static final String KEY_VIEWS_PREFIX = "our:views:";
     private static final String KEY_READ_PREFIX = "our:read:";
 
-
+    @Override
     public Message createMessage(Message message) {
         if (message.getCreatAt() == null) message.setCreatAt(Instant.now());
         if (message.getView() == null) message.setView(0L);
@@ -42,13 +51,8 @@ public class MessageService {
         return saved;
     }
 
-    public void deleteMessage(String id) {
-        messageRepository.deleteById(id);
-        redisTemplate.opsForZSet().remove(KEY_ALL, id);
-        redisTemplate.delete(KEY_MSG_PREFIX + id);
-        redisTemplate.delete(KEY_VIEWS_PREFIX + id);
-    }
 
+    @Override
     public Message getMessageById(String id) {
         String key = KEY_MSG_PREFIX + id;
         Map<Object, Object> cached = redisTemplate.opsForHash().entries(key);
@@ -70,18 +74,28 @@ public class MessageService {
                 .orElseThrow(() -> new ResourceNotFoundException("Message not found"));
     }
 
-    public Message incrementView(String id) {
-        redisTemplate.opsForValue().increment(KEY_VIEWS_PREFIX + id);
-        return getMessageById(id);
+    private Message incrementViewOnce(String sessionUUID, String messageId) {
+        String readKey = KEY_READ_PREFIX + sessionUUID;
+        String viewKey = KEY_VIEWS_PREFIX + messageId;
+
+        Boolean alreadyRead = redisTemplate.opsForSet().isMember(readKey, messageId);
+
+        if (Boolean.FALSE.equals(alreadyRead)) {
+            redisTemplate.opsForSet().add(readKey, messageId);
+            redisTemplate.opsForValue().increment(viewKey);
+            redisTemplate.expire(readKey, java.time.Duration.ofHours(1));
+        }
+
+        return getMessageById(messageId);
     }
 
+    @Override
     public Message markAsRead(String sessionUUID, String messageId) {
-        redisTemplate.opsForSet().add(KEY_READ_PREFIX + sessionUUID, messageId);
-        redisTemplate.expire(KEY_READ_PREFIX + sessionUUID, java.time.Duration.ofHours(1));
-
-        return incrementView(messageId);
+        return incrementViewOnce(sessionUUID, messageId);
     }
 
+
+    @Override
     public List<Message> getRandomMessagesForSession(String sessionUUID, int limit) {
         final Set<String> readIds = Optional.ofNullable(redisTemplate.opsForSet().members(KEY_READ_PREFIX + sessionUUID))
                 .orElse(Collections.emptySet())
@@ -134,9 +148,7 @@ public class MessageService {
     }
 
 
-    public List<Message> getAllMessages() {
-        return messageRepository.findAll();
-    }
+
 
     private void cacheMessage(Message m) {
         String key = KEY_MSG_PREFIX + m.getId();
@@ -145,4 +157,67 @@ public class MessageService {
         redisTemplate.opsForHash().put(key, "view", String.valueOf(m.getView()));
         redisTemplate.expire(key, java.time.Duration.ofMinutes(30));
     }
+
+    @Override
+    public MessageSearchResult searchMessages(String sessionUUID, MessageSearchFilterDto filter) {
+        String cacheKey = String.format(
+                "smartSearch:%s:keyword:%s:length:%s:minViews:%s:page:%d:size:%d",
+                sessionUUID,
+                filter.getKeyword() == null ? "" : filter.getKeyword().toLowerCase(),
+                filter.getLength() == null ? "" : filter.getLength().toLowerCase(),
+                filter.getMinViews() == null ? "" : filter.getMinViews(),
+                filter.getPage(),
+                filter.getSize()
+        );
+        String totalKey = cacheKey + ":total";
+
+        List<Message> cachedMessages = (List<Message>) objectRedisTemplate.opsForValue().get(cacheKey);
+        Object cachedTotalObj = objectRedisTemplate.opsForValue().get(totalKey);
+        long cachedTotal = cachedTotalObj == null ? 0L : ((Number) cachedTotalObj).longValue();
+
+        if (cachedMessages != null && cachedTotalObj != null) {
+            Collections.shuffle(cachedMessages);
+            int totalPages = (int) Math.ceil((double) cachedTotal / filter.getSize());
+            return new MessageSearchResult(cachedMessages, filter.getPage(), filter.getSize(), totalPages, cachedTotal);
+        }
+
+        Query query = new Query();
+        boolean hasFilter = false;
+
+        if (filter.getKeyword() != null && !filter.getKeyword().isBlank()) {
+            query.addCriteria(Criteria.where("content").regex(filter.getKeyword(), "i"));
+            hasFilter = true;
+        }
+
+        if (filter.getLength() != null) {
+            if (filter.getLength().equalsIgnoreCase("short")) {
+                query.addCriteria(Criteria.where("content").regex("^.{0,50}$"));
+            } else if (filter.getLength().equalsIgnoreCase("long")) {
+                query.addCriteria(Criteria.where("content").regex("^.{51,}$"));
+            }
+            hasFilter = true;
+        }
+
+        if (filter.getMinViews() != null) {
+            query.addCriteria(Criteria.where("view").gte(filter.getMinViews()));
+            hasFilter = true;
+        }
+
+        if (!hasFilter) {
+            throw new IllegalArgumentException("At least one filter must be provided");
+        }
+
+        long totalCount = mongoTemplate.count(query, Message.class);
+        query.skip((long) filter.getPage() * filter.getSize()).limit(filter.getSize());
+
+        List<Message> results = mongoTemplate.find(query, Message.class);
+        Collections.shuffle(results);
+
+        objectRedisTemplate.opsForValue().set(cacheKey, results, Duration.ofMinutes(5));
+        objectRedisTemplate.opsForValue().set(totalKey, totalCount, Duration.ofMinutes(5));
+
+        int totalPages = (int) Math.ceil((double) totalCount / filter.getSize());
+        return new MessageSearchResult(results, filter.getPage(), filter.getSize(), totalPages, totalCount);
+    }
+
 }

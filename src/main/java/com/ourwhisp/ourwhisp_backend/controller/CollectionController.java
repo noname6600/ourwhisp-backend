@@ -1,9 +1,9 @@
 package com.ourwhisp.ourwhisp_backend.controller;
 
-import com.ourwhisp.ourwhisp_backend.dto.ApiResponse;
-import com.ourwhisp.ourwhisp_backend.dto.MessageDto;
-import com.ourwhisp.ourwhisp_backend.model.Collection;
-import com.ourwhisp.ourwhisp_backend.service.CollectionService;
+import com.ourwhisp.ourwhisp_backend.dto.*;
+import com.ourwhisp.ourwhisp_backend.exception.ResourceNotFoundException;
+import com.ourwhisp.ourwhisp_backend.model.MessageCollection;
+import com.ourwhisp.ourwhisp_backend.service.ICollectionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Tag(name = "Collection", description = "User personal collection")
 @RestController
@@ -18,38 +19,49 @@ import java.util.List;
 @RequestMapping("/api/collection")
 public class CollectionController {
 
-    private final CollectionService collectionService;
+    private final ICollectionService collectionService;
 
     @Operation(summary = "Get user's collection")
-    @GetMapping
-    public ResponseEntity<ApiResponse<Collection>> getCollection(@RequestParam String sessionUUID) {
-        Collection c = collectionService.getCollection(sessionUUID);
-        return ResponseEntity.ok(ApiResponse.success(c));
+    @GetMapping("/{sessionUUID}")
+    public ResponseEntity<ApiResponse<MessageCollectionDto>> getCollection(@PathVariable String sessionUUID) {
+        MessageCollection collection = collectionService.getCollection(sessionUUID);
+        List<MessageRequestDto> messages = collection.getMessageIds().stream()
+                .map(id -> MessageRequestDto.fromEntity(collectionService.getMessagesFromCollection(sessionUUID).stream()
+                        .filter(m -> m.getId().equals(id))
+                        .findFirst()
+                        .orElseThrow(() -> new ResourceNotFoundException("Message not found"))))
+                .collect(Collectors.toList());
+
+        MessageCollectionDto dto = new MessageCollectionDto(collection.getSessionUUID(), messages);
+        return ResponseEntity.ok(ApiResponse.success(dto));
     }
 
     @Operation(summary = "Add message to collection")
-    @PostMapping("/add")
-    public ResponseEntity<ApiResponse<Collection>> addMessage(
-            @RequestParam String sessionUUID,
+    @PostMapping("/{sessionUUID}/messages")
+    public ResponseEntity<ApiResponse<MessageCollectionDto>> addMessage(
+            @PathVariable String sessionUUID,
             @RequestParam String messageId) {
-        Collection c = collectionService.addMessageToCollection(sessionUUID, messageId);
-        return ResponseEntity.ok(ApiResponse.success(c, "Message added to collection"));
+
+        collectionService.addMessageToCollection(sessionUUID, messageId);
+
+        return getCollection(sessionUUID);
     }
 
     @Operation(summary = "Remove message from collection")
-    @PostMapping("/remove")
-    public ResponseEntity<ApiResponse<Collection>> removeMessage(
-            @RequestParam String sessionUUID,
-            @RequestParam String messageId) {
-        Collection c = collectionService.removeMessageFromCollection(sessionUUID, messageId);
-        return ResponseEntity.ok(ApiResponse.success(c, "Message removed from collection"));
+    @DeleteMapping("/{sessionUUID}/messages/{messageId}")
+    public ResponseEntity<ApiResponse<MessageCollectionDto>> removeMessage(
+            @PathVariable String sessionUUID,
+            @PathVariable String messageId) {
+
+        collectionService.removeMessageFromCollection(sessionUUID, messageId);
+
+        return getCollection(sessionUUID);
     }
 
-    @Operation(summary = "Get all messages with content in user's collection")
-    @GetMapping("/messages")
-    public ResponseEntity<ApiResponse<List<MessageDto>>> getMessagesFromCollection(
-            @RequestParam String sessionUUID) {
-        List<MessageDto> dtos = collectionService.getMessagesFromCollection(sessionUUID);
-        return ResponseEntity.ok(ApiResponse.success(dtos));
+    @Operation(summary = "Remove a collection")
+    @DeleteMapping("/{sessionUUID}")
+    public ResponseEntity<ApiResponse<Void>> clearCollection(@PathVariable String sessionUUID) {
+        collectionService.clearCollection(sessionUUID);
+        return ResponseEntity.ok(ApiResponse.success(null, "Collection cleared"));
     }
 }

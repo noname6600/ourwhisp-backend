@@ -6,16 +6,14 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
-
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class MessageDto {
+public class MessageRequestDto {
     private String content;
 
-    public static MessageDto fromEntity(Message message) {
-        MessageDto dto = new MessageDto();
+    public static MessageRequestDto fromEntity(Message message) {
+        MessageRequestDto dto = new MessageRequestDto();
         dto.setContent(message.getContent());
         return dto;
     }
