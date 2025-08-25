@@ -21,10 +21,9 @@ public class MessageController {
 
     private final IMessageService messageService;
 
-
     @Operation(summary = "Get random 10 messages for user session")
     @GetMapping("/random")
-    public ResponseEntity<ApiResponse<List<MessageResponseDto>>> getRandomMessagesForSession(
+    public ResponseEntity<ApiResponse<List<MessageResponseDto>>> getRandomMessages(
             @RequestParam String sessionUUID,
             @RequestParam(defaultValue = "10") int limit
     ) {
@@ -35,21 +34,13 @@ public class MessageController {
         return ResponseEntity.ok(ApiResponse.success(dtos));
     }
 
-    @Operation(summary = "Mark message as read for a session")
-    @PostMapping("/{id}/read")
-    public ResponseEntity<ApiResponse<MessageResponseDto>> markAsRead(
+    @Operation(summary = "Get message by ID (auto confirm read)")
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<MessageResponseDto>> getMessageById(
             @RequestParam String sessionUUID,
             @PathVariable String id
     ) {
-        Message updated = messageService.markAsRead(sessionUUID, id);
-        return ResponseEntity.ok(ApiResponse.success(MessageResponseDto.fromEntity(updated), "Message marked as read"));
-    }
-
-
-    @Operation(summary = "Find a message by ID")
-    @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<MessageResponseDto>> getMessageById(@PathVariable String id) {
-        Message msg = messageService.getMessageById(id);
+        Message msg = messageService.getMessageById(sessionUUID, id);
         return ResponseEntity.ok(ApiResponse.success(MessageResponseDto.fromEntity(msg)));
     }
 
@@ -60,11 +51,9 @@ public class MessageController {
         return ResponseEntity.ok(ApiResponse.success(MessageResponseDto.fromEntity(created), "Message created"));
     }
 
-
-
     @Operation(summary = "Search messages")
     @GetMapping("/search")
-    public ResponseEntity<ApiResponse<MessageSearchResultDto>> smartSearch(
+    public ResponseEntity<ApiResponse<MessageSearchResultDto>> searchMessages(
             @RequestParam String sessionUUID,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String length,
@@ -82,5 +71,4 @@ public class MessageController {
         MessageSearchResult result = messageService.searchMessages(sessionUUID, filter);
         return ResponseEntity.ok(ApiResponse.success(MessageSearchResultDto.fromEntity(result)));
     }
-
 }

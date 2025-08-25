@@ -10,7 +10,7 @@ import java.util.List;
 public interface IMessageService {
     Message createMessage(Message message);
     Message getMessageById(String id);
-    Message markAsRead(String sessionUUID, String messageId);
+    Message getMessageById(String sessionUUID, String messageId);
     List<Message> getRandomMessagesForSession(String sessionUUID, int limit);
     MessageSearchResult searchMessages(String sessionUUID, MessageSearchFilterDto filter);
 }
