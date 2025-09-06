@@ -4,11 +4,20 @@ import com.ourwhisp.ourwhisp_backend.exception.ResourceNotFoundException;
 import com.ourwhisp.ourwhisp_backend.model.Message;
 import com.ourwhisp.ourwhisp_backend.model.MessageCollection;
 import com.ourwhisp.ourwhisp_backend.repository.CollectionRepository;
+import com.ourwhisp.ourwhisp_backend.repository.MessageRepository;
 import com.ourwhisp.ourwhisp_backend.service.ICollectionService;
 import com.ourwhisp.ourwhisp_backend.service.IMessageService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -19,6 +28,7 @@ public class CollectionServiceImpl implements ICollectionService {
 
     private final CollectionRepository collectionRepository;
     private final IMessageService messageService;
+    private final MongoTemplate mongoTemplate;
 
     @Override
     public MessageCollection getCollection(String sessionUUID) {
@@ -69,4 +79,31 @@ public class CollectionServiceImpl implements ICollectionService {
         collection.getMessageIds().clear();
         collectionRepository.save(collection);
     }
+
+    @Override
+    public Page<Message> getPageMessagesFromCollection(String sessionUUID, String keyword, Pageable pageable) {
+        MessageCollection collection = getCollection(sessionUUID);
+        List<String> messageIds = new ArrayList<>(collection.getMessageIds());
+
+        if (messageIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        Query query = new Query();
+        query.addCriteria(Criteria.where("id").in(messageIds));
+
+        if (keyword != null && !keyword.isBlank()) {
+            query.addCriteria(Criteria.where("content").regex(keyword, "i"));
+        }
+
+        long totalCount = mongoTemplate.count(query, Message.class);
+
+        query.skip(pageable.getOffset()).limit(pageable.getPageSize());
+
+        List<Message> results = mongoTemplate.find(query, Message.class);
+
+        return new PageImpl<>(results, pageable, totalCount);
+    }
+
+
 }

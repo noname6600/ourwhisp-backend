@@ -1,17 +1,19 @@
 package com.ourwhisp.ourwhisp_backend.controller;
 
 import com.ourwhisp.ourwhisp_backend.dto.*;
-import com.ourwhisp.ourwhisp_backend.exception.ResourceNotFoundException;
+import com.ourwhisp.ourwhisp_backend.model.Message;
 import com.ourwhisp.ourwhisp_backend.model.MessageCollection;
 import com.ourwhisp.ourwhisp_backend.service.ICollectionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Tag(name = "Collection", description = "User personal collection")
 @RestController
@@ -23,17 +25,37 @@ public class CollectionController {
 
     @Operation(summary = "Get user's collection")
     @GetMapping("/{sessionUUID}")
-    public ResponseEntity<ApiResponse<MessageCollectionDto>> getCollection(@PathVariable String sessionUUID) {
-        MessageCollection collection = collectionService.getCollection(sessionUUID);
-        List<MessageRequestDto> messages = collection.getMessageIds().stream()
-                .map(id -> MessageRequestDto.fromEntity(collectionService.getMessagesFromCollection(sessionUUID).stream()
-                        .filter(m -> m.getId().equals(id))
-                        .findFirst()
-                        .orElseThrow(() -> new ResourceNotFoundException("Message not found"))))
-                .collect(Collectors.toList());
+    public ResponseEntity<ApiResponse<PagedMessageCollectionDto>> getPageCollection(
+            @PathVariable String sessionUUID,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String keyword) {
 
-        MessageCollectionDto dto = new MessageCollectionDto(collection.getSessionUUID(), messages);
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Message> messagePage = collectionService.getPageMessagesFromCollection(sessionUUID, keyword, pageable);
+
+        List<MessageResponseDto> messages = messagePage.getContent().stream()
+                .map(MessageResponseDto::fromEntity)
+                .toList();
+
+        PagedMessageCollectionDto dto = new PagedMessageCollectionDto(
+                messages,
+                messagePage.getNumber(),
+                messagePage.getSize(),
+                messagePage.getTotalPages(),
+                messagePage.getTotalElements()
+        );
+
         return ResponseEntity.ok(ApiResponse.success(dto));
+    }
+
+    private MessageCollectionDto getCollection(String sessionUUID) {
+        MessageCollection collection = collectionService.getCollection(sessionUUID);
+        List<MessageResponseDto> messages = collectionService.getMessagesFromCollection(sessionUUID).stream()
+                .map(MessageResponseDto::fromEntity)
+                .toList();
+
+        return new MessageCollectionDto(collection.getSessionUUID(), messages);
     }
 
     @Operation(summary = "Add message to collection")
@@ -44,7 +66,7 @@ public class CollectionController {
 
         collectionService.addMessageToCollection(sessionUUID, messageId);
 
-        return getCollection(sessionUUID);
+        return ResponseEntity.ok(ApiResponse.success(getCollection(sessionUUID)));
     }
 
     @Operation(summary = "Remove message from collection")
@@ -55,7 +77,7 @@ public class CollectionController {
 
         collectionService.removeMessageFromCollection(sessionUUID, messageId);
 
-        return getCollection(sessionUUID);
+        return ResponseEntity.ok(ApiResponse.success(getCollection(sessionUUID)));
     }
 
     @Operation(summary = "Remove a collection")

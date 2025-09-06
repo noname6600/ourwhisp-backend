@@ -14,6 +14,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -64,18 +65,20 @@ public class MessageServiceImpl implements IMessageService {
 
         Query query = new Query();
         boolean hasFilter = false;
-
+        List<Criteria> contentCriterias = new ArrayList<>();
         if (filter.getKeyword() != null && !filter.getKeyword().isBlank()) {
-            query.addCriteria(Criteria.where("content").regex(filter.getKeyword(), "i"));
-            hasFilter = true;
+            contentCriterias.add(Criteria.where("content").regex(filter.getKeyword(), "i"));
         }
 
         if (filter.getLength() != null) {
             if (filter.getLength().equalsIgnoreCase("short")) {
-                query.addCriteria(Criteria.where("content").regex("^.{0,50}$"));
+                contentCriterias.add(Criteria.where("content").regex("^.{0,50}$"));
             } else if (filter.getLength().equalsIgnoreCase("long")) {
-                query.addCriteria(Criteria.where("content").regex("^.{51,}$"));
+                contentCriterias.add(Criteria.where("content").regex("^.{51,}$"));
             }
+        }
+        if (!contentCriterias.isEmpty()) {
+            query.addCriteria(new Criteria().andOperator(contentCriterias.toArray(new Criteria[0])));
             hasFilter = true;
         }
 
